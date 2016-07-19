@@ -35,9 +35,11 @@ class Vocabulary(object):
 
 class Matrices(object):
 
-    def __init__(self,max_sent_len,vocablen,batchsize=100):
+    def __init__(self,max_sent_len,vocablen,window,batchsize=100):
         self.batchsize=batchsize
-        self.context=np.zeros((batchsize,max_sent_len),np.int)
+        self.max_sent_len=max_sent_len
+        self.window=window
+        self.context=np.zeros((batchsize,window),np.int)
         self.focus=np.zeros((batchsize,1),np.int)
         self.target=np.zeros((batchsize,vocablen),np.int)
         self.mdict={"context":self.context,"focus":self.focus,"target":self.target}
@@ -47,29 +49,39 @@ class Matrices(object):
             m.fill(0)
        
 
-max_sent_len=100
+#max_sent_len=100
 
 def iter_data(f):
+    counter=0
     for comm,sent in cu.read_conllu(f):
-        if len(sent)>max_sent_len or len(sent)==1:
+        if len(sent)==1:
             continue
         words=[t[cu.FORM] for t in sent]
         yield words
+        counter+=1
+        if counter%10000==0:
+            print(counter,file=sys.stderr)
 
 def fill_batch(ms,vocab,iterator):
 
     row=0
     for words in iterator:
+        if len(words)>ms.max_sent_len:
+            continue
         for i in range(0,len(words)): # i is focus
-            for j in range(0,len(words)): # j is target, rest is context
-                if i==j:
+            if vocab.get_id((words[i]))==vocab.get_id("<UNK>"): # skip if focus is unknown...
+                continue
+            for j in range(max(0,i-int(ms.window/2)),min(len(words),i+int(ms.window/2))): # j is target, rest is context
+                if i==j or vocab.get_id((words[j]))==vocab.get_id("<UNK>"): # skip if target is unknown...
                     continue
                 ms.focus[row]=vocab.get_id(words[i])
                 ms.target[row,vocab.get_id(words[j])]=1
                 column=0
-                for z,word in enumerate(words):
+#                for z,word in enumerate(words):
+                for z in range(max(0,i-int(ms.window/2)),min(len(words),i+int(ms.window/2))):
                     if z==i or z==j:
                         continue
+                    word=words[z]
                     ms.context[row,column]=vocab.get_id(word)
                     column+=1
                 row+=1
